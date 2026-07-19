@@ -10,20 +10,22 @@ interface Opts {
 // ...but that's annoying in a static initializer because it can throw exceptions, ick.
 // So we just hardcode the correct value.
 const EPOCH = 978307200000;
+const BPLIST_HEADER = [0x62, 0x70, 0x6c, 0x69, 0x73, 0x74];
+const utf8Decoder = new TextDecoder("utf-8");
+const utf16Decoder = new TextDecoder("utf-16be");
 
-export const parseBuffer = function (buffer: Buffer, opts?: Opts) {
+export const parseBuffer = function (buffer: Uint8Array, opts?: Opts) {
   const { maxObjectSize = defaultMaxObjectSize, maxObjectCount = defaultMaxObjectCount } = opts || {};
   // check header
-  const header = buffer.subarray(0, "bplist".length).toString("utf8");
-  if (header !== "bplist") {
+  if (BPLIST_HEADER.some((byte, index) => buffer[index] !== byte)) {
     throw new Error("Invalid binary plist. Expected 'bplist' at offset 0.");
   }
 
   // Handle trailer, last 32 bytes of the file
   const trailer = buffer.subarray(buffer.length - 32, buffer.length);
   // 6 null bytes (index 0 to 5)
-  const offsetSize = trailer.readUInt8(6);
-  const objectRefSize = trailer.readUInt8(7);
+  const offsetSize = trailer[6];
+  const objectRefSize = trailer[7];
   const numObjects = readUInt64BE(trailer, 8);
   const topObject = readUInt64BE(trailer, 16);
   const offsetTableOffset = readUInt64BE(trailer, 24);
@@ -89,7 +91,7 @@ export const parseBuffer = function (buffer: Buffer, opts?: Opts) {
       }
     }
 
-    function bufferToHexString(buffer: Buffer) {
+    function bufferToHexString(buffer: Uint8Array) {
       let str = "";
       let i;
       for (i = 0; i < buffer.length; i++) {
@@ -137,12 +139,11 @@ export const parseBuffer = function (buffer: Buffer, opts?: Opts) {
     function parseReal() {
       const length = Math.pow(2, objInfo);
       if (length < maxObjectSize) {
-        const realBuffer = buffer.subarray(offset + 1, offset + 1 + length);
         if (length === 4) {
-          return realBuffer.readFloatBE(0);
+          return readFloatBE(buffer, offset + 1);
         }
         if (length === 8) {
-          return realBuffer.readDoubleBE(0);
+          return readDoubleBE(buffer, offset + 1);
         }
         throw new Error("Unhandled real length " + length);
       } else {
@@ -156,8 +157,7 @@ export const parseBuffer = function (buffer: Buffer, opts?: Opts) {
       if (objInfo != 0x3) {
         console.error("Unknown date type :" + objInfo + ". Parsing anyway...");
       }
-      const dateBuffer = buffer.subarray(offset + 1, offset + 9);
-      return new Date(EPOCH + 1000 * dateBuffer.readDoubleBE(0));
+      return new Date(EPOCH + 1000 * readDoubleBE(buffer, offset + 1));
     }
 
     function parseData() {
@@ -187,7 +187,6 @@ export const parseBuffer = function (buffer: Buffer, opts?: Opts) {
     }
 
     function parsePlistString(isUtf16: 0 | 1 = 0) {
-      let enc: BufferEncoding = "utf8";
       let length = objInfo;
       let stroffset = 1;
       if (objInfo == 0xf) {
@@ -208,12 +207,8 @@ export const parseBuffer = function (buffer: Buffer, opts?: Opts) {
       // length is String length -> to get byte length multiply by 2, as 1 character takes 2 bytes in UTF-16
       length *= isUtf16 + 1;
       if (length < maxObjectSize) {
-        let plistString = Buffer.from(buffer.subarray(offset + stroffset, offset + stroffset + length));
-        if (isUtf16) {
-          plistString = swapBytes(plistString);
-          enc = "ucs2";
-        }
-        return plistString.toString(enc);
+        const plistString = buffer.subarray(offset + stroffset, offset + stroffset + length);
+        return (isUtf16 ? utf16Decoder : utf8Decoder).decode(plistString);
       }
       throw new Error(
         `Too little heap space available! Wanted to read ${length} bytes, but only ${maxObjectSize} are available.`,
@@ -295,7 +290,7 @@ export const parseBuffer = function (buffer: Buffer, opts?: Opts) {
   return [parseObject(topObject)];
 };
 export default parseBuffer;
-function readUInt(buffer: Buffer, start = 0) {
+function readUInt(buffer: Uint8Array, start = 0) {
   start = start || 0;
 
   let l = 0;
@@ -307,17 +302,18 @@ function readUInt(buffer: Buffer, start = 0) {
 }
 
 // we're just going to toss the high order bits because javascript doesn't have 64-bit ints
-function readUInt64BE(buffer: Buffer, start: number) {
-  const data = buffer.subarray(start, start + 8);
-  return data.readUInt32BE(4);
+function readUInt64BE(buffer: Uint8Array, start: number) {
+  return getDataView(buffer, start + 4, 4).getUint32(0, false);
 }
 
-function swapBytes(buffer: Buffer) {
-  const len = buffer.length;
-  for (let i = 0; i < len; i += 2) {
-    const a = buffer[i];
-    buffer[i] = buffer[i + 1];
-    buffer[i + 1] = a;
-  }
-  return buffer;
+function readFloatBE(buffer: Uint8Array, start: number) {
+  return getDataView(buffer, start, 4).getFloat32(0, false);
+}
+
+function readDoubleBE(buffer: Uint8Array, start: number) {
+  return getDataView(buffer, start, 8).getFloat64(0, false);
+}
+
+function getDataView(buffer: Uint8Array, start: number, length: number) {
+  return new DataView(buffer.buffer, buffer.byteOffset + start, length);
 }

@@ -20,6 +20,21 @@ describe("bplist-universal", () => {
     expect(dict["Library Persistent ID"], "6F81D37F95101437");
   });
 
+  it("parses a browser Uint8Array without a global Buffer", async () => {
+    const file = path.join(__dirname, "sample1.bplist");
+    const bytes = Uint8Array.from(await fs.readFile(file));
+    const globalWithBuffer = globalThis as typeof globalThis & { Buffer?: typeof Buffer };
+    const originalBuffer = globalWithBuffer.Buffer;
+
+    try {
+      delete globalWithBuffer.Buffer;
+      const [dict] = bplist.parseBuffer(bytes);
+      expect(dict["CFBundleIdentifier"]).to.equal("com.apple.dictionary.MySample");
+    } finally {
+      globalWithBuffer.Buffer = originalBuffer;
+    }
+  });
+
   it("throws error on invalid buffer", async () => {
     expect(() => bplist.parseBuffer(Buffer.from("invalid"))).to.throw();
   });
