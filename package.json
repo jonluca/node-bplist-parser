@@ -19,12 +19,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jonluca/bplist-universal.git"
+    "url": "git+https://github.com/jonluca/node-bplist-parser.git"
   },
   "bugs": {
-    "url": "https://github.com/jonluca/bplist-universal/issues"
+    "url": "https://github.com/jonluca/node-bplist-parser/issues"
   },
-  "homepage": "https://github.com/jonluca/bplist-universal",
+  "homepage": "https://github.com/jonluca/node-bplist-parser",
   "scripts": {
     "prepublishOnly": "yarn build",
     "lint": "eslint src",
